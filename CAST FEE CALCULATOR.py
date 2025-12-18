@@ -54,7 +54,7 @@ with st.sidebar:
     st.subheader("💰 Award Rate Settings")
     st.caption("Update these rates as per current MEAA sheets.")
 
-    # 1. Determine Defaults based on selection (2024/25 estimates)
+    # 1. Determine Defaults
     if agreement == "ATPA (TV)":
         def_wk = 1250.00 if performer_class == "Class 1" else 1100.00
         def_d = 350.00 if performer_class == "Class 1" else 300.00
@@ -63,7 +63,6 @@ with st.sidebar:
         def_d = 400.00 if performer_class == "Class 1" else 350.00
 
     # 2. Allow User to Override Defaults
-    # These inputs control the 'Min' logic for the whole app
     current_min_weekly = st.number_input("Weekly Minimum ($)", value=def_wk, step=10.0)
     current_min_daily = st.number_input("Daily Minimum ($)", value=def_d, step=10.0)
 
@@ -105,47 +104,71 @@ with tab_weekly:
         # Calculation Mode Toggle
         calc_mode = st.radio(
             "Calculation Method:", 
-            ["Build Up (Base + Margin)", "Reverse from Total (Gross to Net)"],
+            ["Build Up (Base + Margin)", "Reverse from Total (Gross to Net)", "Derive from Daily Ratio"],
             horizontal=True
         )
 
         weekly_hours = st.selectbox("Weekly Hours", [40, 50, 60], index=1)
-        
-        # NOTE: This field is now editable (disabled=False) so you can tweak it per deal if needed
         base_award_wk = st.number_input("Weekly Award Min ($)", value=current_min_weekly, step=10.0)
         
-        # Reference only
-        ref_daily_min = st.number_input("Ref: Daily Award Min ($)", value=current_min_daily, disabled=True)
-
         bnf_weekly = 0.0
         personal_margin = 0.0
         composite_rate = 0.0
 
+        # --- LOGIC BRANCHING ---
         if calc_mode == "Build Up (Base + Margin)":
-            # FORWARD CALCULATION
             personal_margin = st.number_input("Personal Margin ($)", value=0.0, step=50.0)
             bnf_weekly = base_award_wk + personal_margin
             rights_amount = bnf_weekly * active_rights_pct
             composite_rate = bnf_weekly + rights_amount
         
-        else:
-            # REVERSE CALCULATION
-            # Formula: Total = BNF * (1 + Loadings)  --->  BNF = Total / (1 + Loadings)
-            target_composite = st.number_input("Target Weekly Composite Fee ($)", value=2000.0, step=50.0, help="The negotiated total before OT/Super")
+        elif calc_mode == "Derive from Daily Ratio":
+            # UPDATED FORMULA: Weekly BNF = Weekly Total x (Daily Min / Daily Total)
             
-            # Perform the reverse math
-            divisor = 1 + active_rights_pct
-            bnf_weekly = target_composite / divisor
+            # 1. Inputs to establish the Ratio
+            col_a, col_b = st.columns(2)
+            with col_a:
+                daily_min_input = st.number_input("Daily Award Min ($)", value=current_min_daily, step=10.0)
+            with col_b:
+                total_daily_fee_input = st.number_input("Total Daily Fee ($)", value=1000.0, step=50.0)
             
-            # Calculate what the margin must be
+            # 2. Input the Target Weekly
+            target_weekly_total = st.number_input("Target Weekly Total ($)", value=4000.0, step=100.0)
+
+            # 3. Calculate Ratio & Weekly BNF
+            if total_daily_fee_input > 0:
+                # This determines what % of the fee is "Base" (BNF)
+                base_ratio = daily_min_input / total_daily_fee_input
+                
+                # Apply that % to the Weekly Total
+                bnf_weekly = target_weekly_total * base_ratio
+                
+                st.caption(f"ℹ️ Base Ratio: {base_ratio*100:.2f}% (derived from Daily deal)")
+            else:
+                bnf_weekly = 0.0
+                
             personal_margin = bnf_weekly - base_award_wk
             
-            # Display warning if below award
-            if bnf_weekly < base_award_wk:
-                st.markdown(f'<div class="warning-box">⚠️ Illegal Rate! BNF (${bnf_weekly:,.2f}) is below Minimum (${base_award_wk})</div>', unsafe_allow_html=True)
+            # Note: In this mode, we calculate Rights based on the derived BNF to check logic, 
+            # but the Composite is driven by the Target Total.
+            rights_amount = bnf_weekly * active_rights_pct
+            composite_rate = target_weekly_total
+
+        else:
+            # REVERSE CALCULATION (Gross to Net)
+            # This is the standard Gemini Method (Total / Multiplier)
+            target_composite = st.number_input("Target Weekly Composite Fee ($)", value=2000.0, step=50.0)
+            
+            divisor = 1 + active_rights_pct
+            bnf_weekly = target_composite / divisor
+            personal_margin = bnf_weekly - base_award_wk
             
             rights_amount = bnf_weekly * active_rights_pct
             composite_rate = target_composite
+
+        # Safety Check
+        if bnf_weekly < base_award_wk:
+             st.markdown(f'<div class="warning-box">⚠️ Illegal Rate! BNF (${bnf_weekly:,.2f}) is below Minimum (${base_award_wk})</div>', unsafe_allow_html=True)
 
         st.success(f"**Calculated BNF:** ${bnf_weekly:,.2f}")
 
@@ -153,7 +176,6 @@ with tab_weekly:
         ot_amount = st.number_input("Overtime / 6th Day ($)", value=0.0, step=100.0, key="wk_ot")
 
     # --- WEEKLY CALCULATIONS ---
-    # Holiday Pay Formula: Composite / 40 * 50 / 12
     holiday_pay = (composite_rate / 40 * 50) / 12
     
     total_fee_pre_fringe = composite_rate + ot_amount
@@ -168,7 +190,7 @@ with tab_weekly:
         line_items = {
             "Weekly Award Min": base_award_wk,
             "Personal Margin": personal_margin,
-            "➤ BNF (Subtotal)": bnf_weekly,
+            "➤ BNF": bnf_weekly,
             f"Rights Loadings ({active_rights_pct*100:.0f}%)": rights_amount,
             "➤ Composite Rate": composite_rate,
             "Overtime/6th Day": ot_amount,
@@ -221,14 +243,11 @@ with tab_daily:
         )
         
         daily_hours = st.selectbox("Daily Hours", [8, 10], index=1)
-        
-        # User input for Daily Award Base (Editable)
         base_award_daily = st.number_input("Daily Award Minimum ($)", value=current_min_daily, step=10.0, key="d_award_base")
 
         bnf_daily = 0.0
         margin_daily = 0.0
         composite_daily = 0.0
-        rehearsal_cost = 0.0 
 
         if calc_mode_daily == "Build Up":
             margin_daily = st.number_input("Personal Margin ($)", value=0.0, step=50.0, key="d_margin")
@@ -248,14 +267,18 @@ with tab_daily:
             rights_amt_daily = bnf_daily * active_rights_pct_daily
             composite_daily = target_daily
 
-        # Rehearsals
+        # Rehearsals - Stand Alone
         st.subheader("3. Extras")
-        rehearsal_hours = st.number_input("Rehearsal Hours", min_value=0.0, step=0.5)
-        if rehearsal_hours > 0:
-            rehearsal_cost = (bnf_daily / 8) * rehearsal_hours
+        rehearsal_hours_input = st.number_input("Rehearsal Hours", min_value=0.0, step=0.5)
+        rehearsal_cost = 0.0
+        effective_reh_hours = 0.0
         
-        # Final Composite
-        composite_daily_final = composite_daily + rehearsal_cost
+        if rehearsal_hours_input > 0:
+            effective_reh_hours = max(rehearsal_hours_input, 2.5)
+            if effective_reh_hours > rehearsal_hours_input:
+                st.caption(f"ℹ️ Minimum 2.5h call applied (Input: {rehearsal_hours_input}h)")
+            
+            rehearsal_cost = (bnf_daily / 8) * effective_reh_hours
 
         st.subheader("4. Overtime")
         ot_hours_daily = st.number_input("OT Hours", value=0.0, step=0.5)
@@ -269,10 +292,10 @@ with tab_daily:
         ot_amt_daily = st.number_input("Overtime Amount ($)", value=est_ot_cost, step=50.0)
 
     # --- DAILY CALCULATIONS ---
-    holiday_pay_daily = composite_daily_final / 12 
-    total_daily_pre_fringe = composite_daily_final + ot_amt_daily
-    super_daily = total_daily_pre_fringe * super_rate
-    grand_total_daily = total_daily_pre_fringe + holiday_pay_daily + super_daily
+    holiday_pay_daily = composite_daily / 12 
+    total_superable = composite_daily + ot_amt_daily + rehearsal_cost
+    super_daily = total_superable * super_rate
+    grand_total_daily = total_superable + holiday_pay_daily + super_daily
 
     # --- DAILY OUTPUT ---
     with d_col2:
@@ -283,11 +306,11 @@ with tab_daily:
             "Personal Margin": margin_daily,
             "➤ BNF": bnf_daily,
             f"Rights Loadings ({active_rights_pct_daily*100:.0f}%)": rights_amt_daily,
-            f"Rehearsals ({rehearsal_hours}hrs)": rehearsal_cost,
-            "➤ Composite Rate": composite_daily_final,
+            "➤ Composite Rate": composite_daily,
             f"Overtime ({ot_hours_daily}hrs)": ot_amt_daily,
-            "➤ Total Fee (Gross)": total_daily_pre_fringe,
-            "Holiday Pay (1/12th)": holiday_pay_daily,
+            f"Rehearsals ({effective_reh_hours}hrs @ Stand Alone)": rehearsal_cost,
+            "➤ Total Fee (Gross)": total_superable,
+            "Holiday Pay (1/12th of Comp)": holiday_pay_daily,
             f"Superannuation ({super_rate*100}%)": super_daily
         }
         
@@ -330,6 +353,7 @@ if st.button("📋 Copy Deal Points"):
         BNF: ${bnf_daily:,.2f}
         Rights: {active_rights_pct_daily*100:.0f}%
         Composite: ${composite_daily:,.2f}
+        Rehearsals: ${rehearsal_cost:,.2f}
         EST TOTAL: ${grand_total_daily:,.2f}
         """
     st.code(summary, language="text")
