@@ -9,7 +9,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for the "Total" cards
+# Custom CSS
 st.markdown("""
     <style>
     .metric-card {
@@ -50,20 +50,22 @@ with st.sidebar:
     agreement = st.selectbox("Agreement", ["ATPA (TV)", "AFFCA (Film)"], index=0)
     performer_class = st.radio("Performer Class", ["Class 1", "Class 2"], horizontal=True)
     
-    # Defaults
-    if agreement == "ATPA (TV)":
-        min_weekly_1 = 1250.00 
-        min_weekly_2 = 1100.00
-        min_daily_1 = 350.00
-        min_daily_2 = 300.00
-    else:
-        min_weekly_1 = 1350.00
-        min_weekly_2 = 1200.00
-        min_daily_1 = 400.00
-        min_daily_2 = 350.00
+    st.divider()
+    st.subheader("💰 Award Rate Settings")
+    st.caption("Update these rates as per current MEAA sheets.")
 
-    current_min_weekly = min_weekly_1 if performer_class == "Class 1" else min_weekly_2
-    current_min_daily = min_daily_1 if performer_class == "Class 1" else min_daily_2
+    # 1. Determine Defaults based on selection (2024/25 estimates)
+    if agreement == "ATPA (TV)":
+        def_wk = 1250.00 if performer_class == "Class 1" else 1100.00
+        def_d = 350.00 if performer_class == "Class 1" else 300.00
+    else:
+        def_wk = 1350.00 if performer_class == "Class 1" else 1200.00
+        def_d = 400.00 if performer_class == "Class 1" else 350.00
+
+    # 2. Allow User to Override Defaults
+    # These inputs control the 'Min' logic for the whole app
+    current_min_weekly = st.number_input("Weekly Minimum ($)", value=def_wk, step=10.0)
+    current_min_daily = st.number_input("Daily Minimum ($)", value=def_d, step=10.0)
 
     st.divider()
     
@@ -108,10 +110,11 @@ with tab_weekly:
         )
 
         weekly_hours = st.selectbox("Weekly Hours", [40, 50, 60], index=1)
-        base_award_wk = st.number_input("Weekly Award Min ($)", value=current_min_weekly, step=10.0, disabled=True)
         
-        # User requested ability to input Daily Min here for reference
-        # (Though not strictly used in the Reverse Math formula, it's good for reference)
+        # NOTE: This field is now editable (disabled=False) so you can tweak it per deal if needed
+        base_award_wk = st.number_input("Weekly Award Min ($)", value=current_min_weekly, step=10.0)
+        
+        # Reference only
         ref_daily_min = st.number_input("Ref: Daily Award Min ($)", value=current_min_daily, disabled=True)
 
         bnf_weekly = 0.0
@@ -126,7 +129,7 @@ with tab_weekly:
             composite_rate = bnf_weekly + rights_amount
         
         else:
-            # REVERSE CALCULATION (GEMINI METHOD)
+            # REVERSE CALCULATION
             # Formula: Total = BNF * (1 + Loadings)  --->  BNF = Total / (1 + Loadings)
             target_composite = st.number_input("Target Weekly Composite Fee ($)", value=2000.0, step=50.0, help="The negotiated total before OT/Super")
             
@@ -150,7 +153,7 @@ with tab_weekly:
         ot_amount = st.number_input("Overtime / 6th Day ($)", value=0.0, step=100.0, key="wk_ot")
 
     # --- WEEKLY CALCULATIONS ---
-    # Holiday Pay Formula: Composite / 40 * 50 / 12 (Assuming 50hr basis for HP)
+    # Holiday Pay Formula: Composite / 40 * 50 / 12
     holiday_pay = (composite_rate / 40 * 50) / 12
     
     total_fee_pre_fringe = composite_rate + ot_amount
@@ -218,17 +221,15 @@ with tab_daily:
         )
         
         daily_hours = st.selectbox("Daily Hours", [8, 10], index=1)
+        
+        # User input for Daily Award Base (Editable)
         base_award_daily = st.number_input("Daily Award Minimum ($)", value=current_min_daily, step=10.0, key="d_award_base")
 
         bnf_daily = 0.0
         margin_daily = 0.0
         composite_daily = 0.0
-        rehearsal_cost = 0.0 # Initialize
+        rehearsal_cost = 0.0 
 
-        # Rehearsal Logic (Needs to be known for Reverse Calc?)
-        # Usually Rehearsal is added ON TOP of the fee. 
-        # For simplicity in Reverse Mode, we assume the Target is just the Performance Fee.
-        
         if calc_mode_daily == "Build Up":
             margin_daily = st.number_input("Personal Margin ($)", value=0.0, step=50.0, key="d_margin")
             bnf_daily = base_award_daily + margin_daily
@@ -247,13 +248,13 @@ with tab_daily:
             rights_amt_daily = bnf_daily * active_rights_pct_daily
             composite_daily = target_daily
 
-        # Rehearsals (Added on top usually)
+        # Rehearsals
         st.subheader("3. Extras")
         rehearsal_hours = st.number_input("Rehearsal Hours", min_value=0.0, step=0.5)
         if rehearsal_hours > 0:
             rehearsal_cost = (bnf_daily / 8) * rehearsal_hours
         
-        # Final Composite with Extras
+        # Final Composite
         composite_daily_final = composite_daily + rehearsal_cost
 
         st.subheader("4. Overtime")
