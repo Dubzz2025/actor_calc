@@ -272,4 +272,4 @@ if st.button("📋 Copy Deal Points"):
         EST TOTAL: ${grand_total_daily:,.2f}
         """
     st.code(summary, language="text")
-Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+
